@@ -1,0 +1,77 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Strike</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;500;700&display=swap');
+        body {
+            background-color: #020617;
+            color: #22d3ee;
+            font-family: 'Rajdhani', sans-serif;
+            margin: 0;
+            overflow: hidden;
+        }
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+        canvas {
+            touch-action: none;
+        }
+        .neon-border {
+            box-shadow: 0 0 10px #22d3ee, inset 0 0 5px #22d3ee;
+        }
+        .scanner-line {
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+            position: absolute;
+            width: 100%;
+            top: 0;
+            animation: scan 4s linear infinite;
+            z-index: 40;
+            pointer-events: none;
+            opacity: 0.5;
+        }
+        .crt-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 3px, 3px 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 0.5; }
+            90% { opacity: 0.5; }
+            100% { top: 100%; opacity: 0; }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+    <div class="crt-overlay"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

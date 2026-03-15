@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Strike: Hand Commander",
+  "description": "An immersive augmented reality shooting game where you use hand gestures to battle digital invaders. Powered by Gemini for tactical briefings and MediaPipe for real-time hand tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
