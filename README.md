@@ -1,3 +1,4 @@
+Deployed link : [https://gemini-strike-eta.vercel.app/](https://pranav00076.github.io/Gemini-Strike/)
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
@@ -18,4 +19,4 @@ View your app in AI Studio: https://ai.studio/apps/37eca311-2e6b-4774-bf65-b47ae
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
-Deployed link ; https://gemini-strike-eta.vercel.app/
+
