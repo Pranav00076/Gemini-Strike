@@ -1,4 +1,4 @@
-Deployed link : [https://gemini-strike-eta.vercel.app/](https://pranav00076.github.io/Gemini-Strike/)
+Deployed link : [https://pranav00076.github.io/Gemini-Strike/](https://pranav00076.github.io/Gemini-Strike/)
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
