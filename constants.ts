@@ -24,10 +24,11 @@ export const COLORS = {
 };
 
 export const TARGET_TYPES = {
-  drone: { size: 50, health: 1, points: 100, color: COLORS.CYAN },
-  scout: { size: 30, health: 1, points: 200, color: COLORS.YELLOW },
-  boss: { size: 100, health: 10, points: 1000, color: COLORS.MAGENTA },
-  interceptor: { size: 25, health: 1, points: 300, color: COLORS.ORANGE, speedMult: 2 },
-  carrier: { size: 120, health: 15, points: 1500, color: COLORS.PURPLE, speedMult: 0.5 },
-  shield: { size: 60, health: 2, points: 400, color: COLORS.BLUE, shield: 3 },
+  drone: { size: 50, health: 1, points: 100, color: COLORS.CYAN, movementType: 'linear' },
+  scout: { size: 30, health: 1, points: 200, color: COLORS.YELLOW, movementType: 'sine' },
+  boss: { size: 100, health: 10, points: 1000, color: COLORS.MAGENTA, movementType: 'linear' },
+  interceptor: { size: 25, health: 1, points: 300, color: COLORS.ORANGE, speedMult: 2, movementType: 'zigzag' },
+  carrier: { size: 120, health: 15, points: 1500, color: COLORS.PURPLE, speedMult: 0.5, movementType: 'sine' },
+  shield: { size: 60, health: 2, points: 400, color: COLORS.BLUE, shield: 3, movementType: 'linear' },
 };
+

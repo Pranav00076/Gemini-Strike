@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "Score": {
+      "title": "Score",
+      "description": "A single player's high score entry on the global leaderboard.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "score": { "type": "number" },
+        "date": { "type": "string" }
+      },
+      "required": ["uid", "name", "score", "date"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "A multiplayer game room.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "hostName": { "type": "string" },
+        "hostUid": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "playing"] },
+        "playerCount": { "type": "number" }
+      },
+      "required": ["name", "hostName", "hostUid", "status", "playerCount"]
+    },
+    "RoomPlayer": {
+      "title": "RoomPlayer",
+      "description": "A player within a room.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "isHost": { "type": "boolean" },
+        "health": { "type": "number" },
+        "score": { "type": "number" },
+        "isReady": { "type": "boolean" },
+        "gameOver": { "type": "boolean" }
+      },
+      "required": ["uid", "name"]
+    }
+  },
+  "firestore": {
+    "/leaderboard/{scoreId}": {
+      "schema": { "$ref": "#/entities/Score" },
+      "description": "Global leaderboard scores."
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Multiplayer game rooms."
+    },
+    "/rooms/{roomId}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/RoomPlayer" },
+      "description": "Players in a multiplayer game room."
+    }
+  }
+}

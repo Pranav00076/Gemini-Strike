@@ -104,6 +104,23 @@ class SoundManager {
   public playDamage() {
     this.playTone(110, 'triangle', 0.3, 0.4, 55);
   }
+
+  public playPowerUp() {
+    if (!this.ctx || !this.enabled) return;
+    this.playTone(880, 'sine', 0.1, 0.2, 1760);
+    setTimeout(() => this.playTone(1760, 'sine', 0.2, 0.2, 3520), 100);
+  }
+
+  public playAchievement() {
+    if (!this.ctx || !this.enabled) return;
+    [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+      setTimeout(() => this.playTone(f, 'sine', 0.2, 0.1), i * 100);
+    });
+  }
+
+  public playShieldHit() {
+    this.playTone(150, 'square', 0.1, 0.2, 50);
+  }
 }
 
 export const soundManager = new SoundManager();

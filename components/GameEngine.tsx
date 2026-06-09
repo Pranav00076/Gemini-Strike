@@ -1,16 +1,18 @@
 
 import React, { useRef, useEffect, useCallback } from 'react';
-import { GameState, Target, Particle, Vector2, HandData } from '../types';
+import { GameState, Target, Particle, Vector2, HandData, EnemyProjectile, PowerUpDrop, PowerUpType } from '../types';
 import { GAME_CONFIG, COLORS, TARGET_TYPES } from '../constants';
 import { soundManager } from '../services/soundManager';
+import BackgroundFX from './BackgroundFX';
 
 interface GameEngineProps {
   gameState: GameState;
   updateGameState: (updates: Partial<GameState>) => void;
   onGameOver: () => void;
+  onAchievement?: (title: string, message: string) => void;
 }
 
-const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onGameOver }) => {
+const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onGameOver, onAchievement }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastUpdateRef = useRef<number>(0);
@@ -37,6 +39,11 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
   const comboRef = useRef<number>(0);
   const maxComboRef = useRef<number>(0);
   const screenShakeRef = useRef<number>(0);
+  const enemyProjectilesRef = useRef<EnemyProjectile[]>([]);
+  const powerUpsRef = useRef<PowerUpDrop[]>([]);
+  const activeBuffRef = useRef<PowerUpType | null>(null);
+  const buffTimerRef = useRef<number>(0);
+  const achievementLocks = useRef<Record<string, boolean>>({});
   const isPlayingRef = useRef<boolean>(false);
   const isMounted = useRef<boolean>(true);
   const damageFlashRef = useRef<number>(0);
@@ -52,27 +59,34 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
       comboRef.current = 0;
       targetsRef.current = [];
       particlesRef.current = [];
+      enemyProjectilesRef.current = [];
+      powerUpsRef.current = [];
+      activeBuffRef.current = null;
+      buffTimerRef.current = 0;
+      achievementLocks.current = {};
     }
   }, [gameState.isPlaying, gameState.level]);
 
-  const detectGesture = (landmarks: any): 'gun' | 'pinch' | 'none' => {
+  const detectGesture = (landmarks: any): 'gun' | 'pinch' | 'palm' | 'none' => {
     if (!landmarks || landmarks.length < 21) return 'none';
 
     // Index finger extended?
     const isIndexExtended = landmarks[8].y < landmarks[6].y;
-    // Middle finger curled?
+    // Middle finger curled/extended?
     const isMiddleCurled = landmarks[12].y > landmarks[10].y;
-    // Ring finger curled?
+    const isMiddleExtended = landmarks[12].y < landmarks[10].y;
+    // Ring finger curled/extended?
     const isRingCurled = landmarks[16].y > landmarks[14].y;
-    // Pinky finger curled?
+    const isRingExtended = landmarks[16].y < landmarks[14].y;
+    // Pinky finger curled/extended?
     const isPinkyCurled = landmarks[20].y > landmarks[18].y;
+    const isPinkyExtended = landmarks[20].y < landmarks[18].y;
     
-    // Thumb position relative to index base
-    const thumbTip = landmarks[4];
-    const indexBase = landmarks[5];
-    const isThumbExtended = Math.abs(thumbTip.x - indexBase.x) > 0.05 || thumbTip.y < indexBase.y;
+    if (isIndexExtended && isMiddleExtended && isRingExtended && isPinkyExtended) {
+      return 'palm';
+    }
 
-    // Gun gesture: Index extended, others curled, thumb usually extended
+    // Gun gesture: Index extended, others curled
     if (isIndexExtended && isMiddleCurled && isRingCurled && isPinkyCurled) {
       return 'gun';
     }
@@ -113,8 +127,8 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
       if (!isMounted.current) return;
       
       const newHandsData: HandData[] = [
-        { active: false, pos: { x: 0.5, y: 0.5 }, isFiring: false, landmarks: [], gesture: 'none' },
-        { active: false, pos: { x: 0.5, y: 0.5 }, isFiring: false, landmarks: [], gesture: 'none' }
+        { active: false, pos: { x: 0.5, y: 0.5 }, isFiring: false, landmarks: [], gesture: 'none', shieldActive: false, shieldEnergy: handsDataRef.current[0].shieldEnergy },
+        { active: false, pos: { x: 0.5, y: 0.5 }, isFiring: false, landmarks: [], gesture: 'none', shieldActive: false, shieldEnergy: handsDataRef.current[1].shieldEnergy }
       ];
 
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
@@ -139,7 +153,9 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
             pos: smoothedHandPositions.current[index],
             isFiring: isFiring,
             landmarks: landmarks,
-            gesture: gesture
+            gesture: gesture,
+            shieldActive: false,
+            shieldEnergy: handsDataRef.current[index].shieldEnergy
           };
         });
       }
@@ -155,14 +171,19 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
     const camera = new Camera(videoRef.current, {
       onFrame: async () => {
         if (isMounted.current && videoRef.current && videoRef.current.readyState >= 2) {
-          await hands.send({ image: videoRef.current });
+          await hands.send({ image: videoRef.current }).catch(e => {
+            console.error("Hands send failed", e);
+          });
         }
       },
       width: 1280,
       height: 720
     });
 
-    camera.start().catch((e: any) => console.error("Camera start failed", e));
+    camera.start().catch((e: any) => {
+      console.error("Camera start failed", e);
+      updateGameState({ cameraError: `Camera start failed: ${e.message || e}` });
+    });
     handsRef.current = hands;
 
     return () => {
@@ -215,16 +236,40 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
           color: config.color,
           points: config.points,
           hitTimer: 0,
-          shield: config.shield
+          shield: config.shield,
+          movementType: (config as any).movementType || 'linear',
+          baseX: Math.random() * (canvas.width - 100) + 50,
+          spawnTime: time
         });
         soundManager.playSpawn();
         lastSpawnRef.current = time;
       }
 
+      // 1.5 Buffs, Hand States & Shields
+      if (buffTimerRef.current > 0) {
+        buffTimerRef.current--;
+        if (buffTimerRef.current <= 0) {
+          activeBuffRef.current = null;
+          updateGameState({ activeBuff: null });
+        }
+      }
+
+      handsDataRef.current.forEach(hand => {
+         if (hand.gesture === 'palm' && hand.shieldEnergy > 0) {
+            hand.shieldActive = true;
+            hand.shieldEnergy = Math.max(0, hand.shieldEnergy - 1.5);
+         } else {
+            hand.shieldActive = false;
+            hand.shieldEnergy = Math.min(100, hand.shieldEnergy + 0.5);
+         }
+      });
+
       // 2. Firing Logic (Multiple Hands)
       let hitThisFrame = false;
+      const currentFireRate = activeBuffRef.current === 'rapidFire' ? GAME_CONFIG.FIRE_RATE / 3 : GAME_CONFIG.FIRE_RATE;
+      
       handsDataRef.current.forEach((hand, handIdx) => {
-        if (hand.active && hand.isFiring && time - lastFiredRefs.current[handIdx] > GAME_CONFIG.FIRE_RATE) {
+        if (hand.active && hand.isFiring && !hand.shieldActive && time - lastFiredRefs.current[handIdx] > currentFireRate) {
           lastFiredRefs.current[handIdx] = time;
           soundManager.playFire();
           const fireX = hand.pos.x * canvas.width;
@@ -235,27 +280,30 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
             const dy = fireY - t.pos.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
             
-            if (dist < t.size) {
+            const hitRadius = activeBuffRef.current === 'multiShot' ? t.size + 100 : t.size;
+            
+            if (dist < hitRadius && t.pos.y < fireY) { // Added directional fire check so it only hits above hand
               hitThisFrame = true;
               if (t.shield && t.shield > 0) {
                 t.shield -= 1;
                 screenShakeRef.current = 5;
                 soundManager.playHit();
               } else {
-                t.health -= 1;
+                t.health -= activeBuffRef.current === 'multiShot' ? 2 : 1;
                 screenShakeRef.current = 3;
                 soundManager.playHit();
               }
               t.hitTimer = 10;
-              for(let i=0; i<8; i++) {
+              for(let i=0; i<6; i++) {
                 particlesRef.current.push({
                   id: Math.random().toString(),
-                  pos: { x: fireX, y: fireY },
-                  vel: { x: (Math.random()-0.5)*12, y: (Math.random()-0.5)*12 },
+                  pos: { x: t.pos.x, y: t.pos.y },
+                  vel: { x: (Math.random()-0.5)*20, y: (Math.random()-0.5)*20 - 5 },
                   life: 1,
                   maxLife: 1,
-                  color: t.shield && t.shield > 0 ? COLORS.BLUE : '#ffffff',
-                  size: Math.random() * 3 + 1
+                  color: t.shield && t.shield > 0 ? COLORS.CYAN : '#ffaa00',
+                  size: Math.random() * 4 + 2,
+                  type: 'spark'
                 });
               }
             }
@@ -279,15 +327,42 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
                  updateGameState({ level: levelRef.current });
                  levelUpRef.current = 60;
               }
-              for(let i=0; i<GAME_CONFIG.PARTICLE_COUNT * 2; i++) {
+
+              if (t.type === 'boss' && !achievementLocks.current['bossSlayer']) {
+                 achievementLocks.current['bossSlayer'] = true;
+                 if (onAchievement) onAchievement('Boss Slayer', 'Destroyed a Boss-class Invader!');
+              }
+
+              if (comboRef.current >= 20 && !achievementLocks.current['comboMaster']) {
+                 achievementLocks.current['comboMaster'] = true;
+                 if (onAchievement) onAchievement('Combo Master', 'Hit a 20x Combo Streak!');
+              }
+
+              if (t.type === 'boss' || t.type === 'carrier') {
+                const types: PowerUpType[] = ['rapidFire', 'timeFreeze', 'multiShot'];
+                powerUpsRef.current.push({
+                   id: Math.random().toString(),
+                   pos: { ...t.pos },
+                   vel: { x: (Math.random()-0.5)*2, y: 2 },
+                   type: types[Math.floor(Math.random() * types.length)],
+                   size: 30
+                });
+              }
+
+              for(let i=0; i<GAME_CONFIG.PARTICLE_COUNT * 3; i++) {
+                const r = Math.random();
+                const pType: Particle['type'] = r > 0.7 ? 'smoke' : (r > 0.4 ? 'debris' : 'spark');
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * (pType === 'spark' ? 30 : 15);
                 particlesRef.current.push({
                   id: Math.random().toString(),
                   pos: { ...t.pos },
-                  vel: { x: (Math.random()-0.5)*20, y: (Math.random()-0.5)*20 },
+                  vel: { x: Math.cos(angle)*speed, y: Math.sin(angle)*speed },
                   life: 1,
-                  maxLife: 1.5,
-                  color: t.color,
-                  size: Math.random() * 6 + 2
+                  maxLife: 1 + Math.random(),
+                  color: pType === 'smoke' ? '#475569' : (pType === 'spark' ? '#ffffff' : t.color),
+                  size: pType === 'smoke' ? Math.random() * 30 + 10 : Math.random() * 8 + 2,
+                  type: pType
                 });
               }
             });
@@ -297,13 +372,49 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
         }
       });
 
-      // 3. Movement & Collision
+      // 3. Movement, Enemy Actions & Collision
+      const speedMult = activeBuffRef.current === 'timeFreeze' ? 0.2 : 1;
       targetsRef.current = targetsRef.current.filter(t => {
-        t.pos.x += t.vel.x;
-        t.pos.y += t.vel.y;
-        if (t.hitTimer > 0) t.hitTimer--;
+        // Apply movement pattern
+        if (t.movementType === 'sine') {
+          t.pos.x = t.baseX + Math.sin((time - t.spawnTime) / 500) * 150;
+        } else if (t.movementType === 'zigzag') {
+          if (Math.floor(time / 500) % 2 === 0) t.pos.x += t.vel.y * speedMult;
+          else t.pos.x -= t.vel.y * speedMult;
+        } else {
+          t.pos.x += t.vel.x * speedMult;
+        }
         
-        if (t.pos.x < t.size || t.pos.x > canvas.width - t.size) t.vel.x *= -1;
+        t.pos.y += t.vel.y * speedMult;
+        if (t.hitTimer > 0) t.hitTimer--;
+
+        // Boss / Enemy attacks
+        if ((t.type === 'boss' || t.type === 'carrier') && Math.random() < 0.01 + (levelRef.current * 0.005)) {
+            const activeHands = handsDataRef.current.filter(h => h.active);
+            if (activeHands.length > 0) {
+              const targetHand = activeHands[Math.floor(Math.random() * activeHands.length)];
+              const pX = targetHand.pos.x * canvas.width;
+              const pY = targetHand.pos.y * canvas.height;
+              
+              const dx = pX - t.pos.x;
+              const dy = pY - t.pos.y;
+              const mag = Math.sqrt(dx*dx + dy*dy);
+              const projVel = 5 + levelRef.current;
+
+              enemyProjectilesRef.current.push({
+                id: Math.random().toString(),
+                pos: { x: t.pos.x, y: t.pos.y },
+                vel: { x: (dx/mag) * projVel, y: (dy/mag) * projVel },
+                size: 10,
+                damage: 5,
+                color: COLORS.RED
+              });
+              soundManager.playFire(); // Use fire sound for enemy shot for now
+            }
+        }
+        
+        if (t.pos.x < t.size) t.pos.x = t.size;
+        if (t.pos.x > canvas.width - t.size) t.pos.x = canvas.width - t.size;
         
         if (t.pos.y > canvas.height + t.size) {
           healthRef.current -= 10;
@@ -325,10 +436,108 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
       particlesRef.current = particlesRef.current.filter(p => {
         p.pos.x += p.vel.x;
         p.pos.y += p.vel.y;
-        p.vel.x *= 0.98;
-        p.vel.y *= 0.98;
+        
+        if (p.type === 'debris') {
+          p.vel.y += 0.5; // gravity
+          p.vel.x *= 0.99;
+        } else if (p.type === 'smoke') {
+          p.vel.x *= 0.9;
+          p.vel.y *= 0.9;
+        } else {
+          p.vel.x *= 0.95;
+          p.vel.y *= 0.95;
+        }
+        
         p.life -= 0.02;
         return p.life > 0;
+      });
+
+      // Projectile movement and collisions
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter(p => {
+        p.pos.x += p.vel.x;
+        p.pos.y += p.vel.y;
+        
+        // Hit detection on hands
+        let hit = false;
+        let shieldBlock = false;
+        handsDataRef.current.forEach(hand => {
+           if (hand.active && !hit && !shieldBlock) {
+              const hX = hand.pos.x * canvas.width;
+              const hY = hand.pos.y * canvas.height;
+              const dist = Math.sqrt(Math.pow(p.pos.x - hX, 2) + Math.pow(p.pos.y - hY, 2));
+              
+              if (hand.shieldActive && dist < 70) {
+                 shieldBlock = true;
+                 hand.shieldEnergy = Math.max(0, hand.shieldEnergy - 20);
+                 soundManager.playShieldHit();
+                 for(let i=0; i<8; i++) {
+                   particlesRef.current.push({ id: Math.random().toString(), pos: { ...p.pos }, vel: { x: (Math.random()-0.5)*15, y: -Math.random()*15 }, life: 1, maxLife: 1, color: COLORS.CYAN, size: 4, type: 'spark' });
+                 }
+                 if (!achievementLocks.current['shieldUser']) {
+                    achievementLocks.current['shieldUser'] = true;
+                    if (onAchievement) onAchievement('Perfect Defense', 'Blocked incoming fire with Energy Shield.');
+                 }
+              } else if (dist < 40) { // hand hitbox
+                 hit = true;
+                 healthRef.current -= p.damage;
+                 comboRef.current = 0;
+                 damageFlashRef.current = 0.8;
+                 screenShakeRef.current = 10;
+                 soundManager.playDamage();
+                 
+                 updateGameState({ health: healthRef.current, combo: 0 });
+                 if (healthRef.current <= 0) {
+                   soundManager.playGameOver();
+                   onGameOver();
+                 }
+                 
+                 // Spawn hit particles
+                 for(let i=0; i<10; i++) {
+                   particlesRef.current.push({
+                     id: Math.random().toString(),
+                     pos: { ...p.pos },
+                     vel: { x: (Math.random()-0.5)*15, y: (Math.random()-0.5)*15 },
+                     life: 1,
+                     maxLife: 1,
+                     color: COLORS.RED,
+                     size: 4,
+                     type: 'spark'
+                   });
+                 }
+              }
+           }
+        });
+
+        if (shieldBlock || hit) return false;
+        return p.pos.y < canvas.height && p.pos.y > 0 && p.pos.x > 0 && p.pos.x < canvas.width;
+      });
+
+      // PowerUp Collision and Movement
+      powerUpsRef.current = powerUpsRef.current.filter(p => {
+        p.pos.x += p.vel.x;
+        p.pos.y += p.vel.y;
+        
+        let collected = false;
+        handsDataRef.current.forEach(hand => {
+           if (hand.active && !collected) {
+              const hX = hand.pos.x * canvas.width;
+              const hY = hand.pos.y * canvas.height;
+              const dist = Math.sqrt(Math.pow(p.pos.x - hX, 2) + Math.pow(p.pos.y - hY, 2));
+              if (dist < p.size + 40) {
+                 collected = true;
+                 activeBuffRef.current = p.type;
+                 buffTimerRef.current = 60 * 5; // 5 seconds buff
+                 updateGameState({ activeBuff: p.type });
+                 soundManager.playPowerUp();
+                 
+                 for(let i=0; i<15; i++) {
+                   particlesRef.current.push({ id: Math.random().toString(), pos: { ...p.pos }, vel: { x: (Math.random()-0.5)*15, y: -Math.random()*15 }, life: 1, maxLife: 1, color: '#ffffff', size: 5, type: 'spark' });
+                 }
+              }
+           }
+        });
+        
+        return !collected && p.pos.y < canvas.height + 50;
       });
 
       if (damageFlashRef.current > 0) damageFlashRef.current -= 0.05;
@@ -378,6 +587,27 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
             ctx.arc((1 - lm.x) * canvas.width, lm.y * canvas.height, 3, 0, Math.PI * 2);
             ctx.fill();
           });
+          
+          if (hand.shieldActive) {
+            const hx = hand.pos.x * canvas.width;
+            const hy = hand.pos.y * canvas.height;
+            ctx.beginPath();
+            const flicker = Math.random() * 0.2 + 0.8;
+            ctx.arc(hx, hy, 80, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(34, 211, 238, ${0.15 * flicker * (hand.shieldEnergy/100)})`;
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = `rgba(34, 211, 238, ${0.8 * flicker * (hand.shieldEnergy/100)})`;
+            ctx.stroke();
+
+            ctx.beginPath();
+            const ripple = (time % 1000) / 1000 * 50 + 80;
+            ctx.arc(hx, hy, ripple, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(34, 211, 238, ${1 - ((ripple - 80) / 50)})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+
           ctx.restore();
         }
       });
@@ -427,11 +657,74 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
         ctx.restore();
       });
 
-      // Particles
-      particlesRef.current.forEach(p => {
-        ctx.globalAlpha = p.life;
+      // Render PowerUps
+      powerUpsRef.current.forEach(p => {
+        ctx.save();
+        ctx.translate(p.pos.x, p.pos.y);
+        ctx.rotate((time % 2000) / 2000 * Math.PI * 2);
+        
+        let color = COLORS.YELLOW;
+        if (p.type === 'timeFreeze') color = COLORS.CYAN;
+        if (p.type === 'multiShot') color = COLORS.MAGENTA;
+        
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = color;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        
+        ctx.beginPath();
+        ctx.moveTo(0, -p.size);
+        ctx.lineTo(p.size, 0);
+        ctx.lineTo(0, p.size);
+        ctx.lineTo(-p.size, 0);
+        ctx.closePath();
+        ctx.stroke();
+        
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Render Enemy Projectiles
+      enemyProjectilesRef.current.forEach(p => {
+        ctx.save();
+        ctx.translate(p.pos.x, p.pos.y);
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = p.color;
         ctx.fillStyle = p.color;
-        ctx.fillRect(p.pos.x, p.pos.y, p.size, p.size);
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#FFF';
+        ctx.beginPath();
+        ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Particles (Enhanced)
+      particlesRef.current.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle = p.color;
+        ctx.translate(p.pos.x, p.pos.y);
+        
+        if (p.type === 'spark') {
+           ctx.beginPath();
+           ctx.moveTo(0, 0);
+           ctx.lineTo(p.vel.x * 2.5, p.vel.y * 2.5);
+           ctx.strokeStyle = p.color;
+           ctx.lineWidth = Math.max(1, p.size * (p.life / p.maxLife));
+           ctx.stroke();
+        } else if (p.type === 'smoke') {
+           ctx.beginPath();
+           ctx.arc(0, 0, p.size * (1 + (1 - p.life/p.maxLife)), 0, Math.PI * 2);
+           ctx.fill();
+        } else {
+           // debris and default
+           ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+        }
+        ctx.restore();
       });
       ctx.globalAlpha = 1.0;
 
@@ -523,10 +816,15 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
     <div className="relative w-full h-full flex items-center justify-center bg-black">
       <video ref={videoRef} className="hidden" playsInline muted />
       
-      {/* Background Camera Feed with Cyberpunk post-processing */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden">
+      {/* Background Cyberpunk Scene */}
+      <div className="absolute inset-0 z-0">
+        <BackgroundFX />
+      </div>
+
+      {/* Camera Feed overlay with blend modes */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden z-[5]">
         <video
-          className="w-full h-full object-cover scale-x-[-1] opacity-50 grayscale brightness-[0.7] contrast-125"
+          className="w-full h-full object-cover scale-x-[-1] opacity-30 mix-blend-screen grayscale brightness-[0.8] contrast-125"
           autoPlay
           playsInline
           muted
@@ -536,10 +834,8 @@ const GameEngine: React.FC<GameEngineProps> = ({ gameState, updateGameState, onG
             }
           }}
         />
-        {/* Digital noise overlay */}
-        <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
-        {/* Subtle cyan vignette */}
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,_transparent_40%,_rgba(34,211,238,0.1)_100%)]"></div>
+        {/* Subtle camera borders to frame it */}
+        <div className="absolute inset-0 pointer-events-none ring-inset ring-2 ring-cyan-500/10"></div>
       </div>
 
       <canvas

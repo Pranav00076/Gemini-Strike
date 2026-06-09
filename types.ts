@@ -4,6 +4,28 @@ export interface Vector2 {
   y: number;
 }
 
+export type PowerUpType = 'rapidFire' | 'timeFreeze' | 'multiShot';
+
+export interface PowerUpDrop {
+  id: string;
+  pos: Vector2;
+  vel: Vector2;
+  type: PowerUpType;
+  size: number;
+}
+
+export interface HighScore {
+  name: string;
+  score: number;
+  date: string;
+}
+
+export interface Achievement {
+  id: string;
+  title: string;
+  message: string;
+}
+
 export interface Target {
   id: string;
   pos: Vector2;
@@ -16,6 +38,18 @@ export interface Target {
   points: number;
   hitTimer: number; // For flashing when hit
   shield?: number;
+  movementType: 'linear' | 'sine' | 'zigzag' | 'chase';
+  baseX: number;
+  spawnTime: number;
+}
+
+export interface EnemyProjectile {
+  id: string;
+  pos: Vector2;
+  vel: Vector2;
+  size: number;
+  damage: number;
+  color: string;
 }
 
 export interface Particle {
@@ -34,7 +68,9 @@ export interface HandData {
   pos: Vector2;
   isFiring: boolean;
   landmarks: MediaPipeLandmark[];
-  gesture: 'none' | 'gun' | 'pinch';
+  gesture: 'none' | 'gun' | 'pinch' | 'palm';
+  shieldActive: boolean;
+  shieldEnergy: number;
 }
 
 export interface GameState {
@@ -50,6 +86,10 @@ export interface GameState {
   combo: number;
   maxCombo: number;
   screenShake: number;
+  enemyProjectiles: EnemyProjectile[];
+  activeBuff: PowerUpType | null;
+  buffTimer: number;
+  cameraError: string | null;
 }
 
 export interface MediaPipeLandmark {
